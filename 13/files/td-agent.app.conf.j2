@@ -1,0 +1,38 @@
+<source>
+  @type syslog
+  port 5140
+  bind localhost
+  tag syslogs.appserver
+  protocol_type tcp
+</source>
+
+<source>
+  @type http
+  port 8080
+  bind localhost
+  tag applogs.appserver
+</source>
+
+#<match syslogs.**>
+#  @type forward
+#  <server>
+#    host fluentd.internal
+#    port 24224
+#    weight 60
+#  </server>
+#</match>
+
+<match **>
+  @type forward
+  <server>
+    host fluentd.internal
+    port 24224
+    weight 60
+  </server>
+  <inject>
+    time_key fluentd_time
+    time_type string
+    time_format %Y-%m-%dT%H:%M:%S
+    tag_key fluentd_tag
+  </inject>
+</match>

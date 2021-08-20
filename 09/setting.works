@@ -1,0 +1,56 @@
+<system>
+  log_level trace
+</system>
+
+<source>
+  @type tail
+  path /usr/share/nginx/logs/*.log
+  pos_file /var/log/td-agent/log.pos
+  tag *
+  refresh_interval 1s
+  read_from_head true
+  <parse>
+    @type nginx
+  </parse>
+  @label @INPUT
+</source>
+
+<label @INPUT>
+  <filter>
+    @type record_transformer
+    <record>
+      tag ${tag}
+    </record>
+  </filter>
+
+#  <match **>
+#    @type rewrite_tag_filter
+#    <rule>
+#      key tag
+#      pattern ^.+(app\d).+$
+#      tag nginx.access.$1.test
+#      tag ${tag}
+#    </rule>
+#  </match>
+
+  <match **>
+#  @type stdout
+    @type kafka2
+    brokers log.internal:9092
+    topic_key fluentd
+    default_topic fluentd
+#  @log_level trace
+    <format>
+      @type json
+    </format>
+    <inject>
+      tag_key tag
+      time_key time
+    </inject>
+  <buffer topic>
+    @type file
+    path /var/log/td-agent/buffer/td
+    flush_interval 1s
+  </buffer>
+  </match>
+</label>

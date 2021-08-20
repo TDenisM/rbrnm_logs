@@ -1,0 +1,110 @@
+---
+- name: check for ssh
+  hosts: app, log
+  gather_facts: no
+  tasks:
+    - name: check ssh state
+      wait_for:
+        port: 22
+        host: '{{ ansible_host }}'
+        search_regex: OpenSSH
+        delay: 5
+      connection: local
+
+- name: system preparations
+  hosts: log, app
+  become: yes
+  tasks:
+    - name: apt update
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+    - name: edit hostfiles
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ hostvars[item]['ansible_facts']['eth1']['ipv4']['address'] }} {{ hostvars[item]['ansible_hostname'] + '.internal' }}"
+      with_items: "{{ groups['log'] + groups['app'] }}"
+    - name: download install fluentd
+      get_url:
+        url: https://toolbelt.treasuredata.com/sh/install-ubuntu-focal-td-agent4.sh
+        dest: .
+        mode: '0555'
+    - name: run install script
+      command: sh ./install-ubuntu-focal-td-agent4.sh
+
+- name: app installation
+  hosts: app
+  become: yes
+  tasks:
+    - name: install apps
+      apt:
+        name: nginx
+        state: latest
+        update_cache: yes
+    - name: delete default config
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+    - name: conpy config
+      copy:
+        src: files/rebrain.conf
+        dest: /etc/nginx/conf.d/rebrain.conf
+    - name: create logs dir
+      file:
+        path: /usr/share/nginx/logs/
+        state: directory
+    - name: restart nginx
+      service:
+        name: nginx
+        state: restarted
+    - name: copy fluentd config
+      copy:
+        src: files/td-agent.app.conf
+        dest: /etc/td-agent/td-agent.conf
+    - name: restart fluentd
+      service:
+        name: td-agent
+        state: restarted
+
+- name: install java
+  hosts: log
+  become: yes
+  pre_tasks:
+    - name: Update apt
+      become: yes
+      apt:
+        cache_valid_time: 3600
+        update_cache: yes
+  roles:
+    - gantsign.java
+  tasks:
+    - name: find java
+      command: find /opt/java -type f -name java
+      register: this
+    - name: link java bin
+      file:
+        src: '{{ this.stdout }}'
+        dest: /usr/bin/java
+        state: link
+    - name: copy fluentd config
+      copy:
+        src: files/td-agent.log.conf
+        dest: /etc/td-agent/td-agent.conf
+    - name: restart fluentd
+      service:
+        name: td-agent
+        state: restarted
+
+- name: install zookeeper, kafka
+  hosts: log
+  become: yes
+  roles:
+    - idealista.zookeeper_role
+    - idealista.kafka_role
+    - elastic.elasticsearch
+  vars:
+    es_heap_size: 1g
+    es_config:
+      node.name: '{{ ansible_hostname | quote }}'
+      http.host: '{{ "localhost," + ansible_facts["eth1"]["ipv4"]["address"] }}'
+      http.port: 9200

@@ -1,0 +1,28 @@
+{
+  "read_only": true,
+  "permissions": [
+    "messagecount:read",
+    "sidecar_collectors:read",
+    "fieldnames:read",
+    "system:read",
+    "sidecar_collector_configurations:read",
+    "sidecars:read",
+    "clusterconfigentry:read",
+    "decorators:read",
+    "stream_outputs:read",
+    "messages:*",
+    "buffers:read",
+    "sources:read",
+    "journal:read",
+    "indexercluster:read",
+    "system:read",
+    "jvmstats:read",
+    "inputs:read",
+    "throughput:read",
+    "users:*",
+    "streams:*",
+    "roles:*"
+  ],
+  "name": "USR_full_access",
+  "description": "USR full access"
+}

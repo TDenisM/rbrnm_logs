@@ -1,0 +1,24 @@
+<source>
+  @type tail
+  path /var/log/*.log
+  pos_file /var/log/td-agent/log.pos
+  tag task07.*
+  refresh_interval 1s
+  read_from_head true
+  <parse>
+    @type none
+  </parse>
+</source>
+
+<match task07.**>
+  @type elasticsearch
+  host localhost
+  port 9200
+  logstash_format true
+  logstash_prefix task07.${tag[3]}
+  logstash_dateformat %Y-%m-%d
+  tag_key @log_name
+  flush_interval 1s
+  <buffer tag>
+  </buffer>
+</match>

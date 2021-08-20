@@ -1,0 +1,16 @@
+{
+  "index_set_id": "{{ (index_sets.content|from_json).index_sets[0].id }}",
+  "matching_type": "AND",
+  "remove_matches_from_default_stream": "false",
+  "description": "weblogs_stream",
+  "rules": [
+    {
+      "field": "message",
+      "type": 2,
+      "inverted": false,
+      "value": ".+(nginx).+"
+    }
+  ],
+  "title": "weblogs_stream"
+#  "content_pack":
+}

@@ -1,0 +1,80 @@
+app
+
+<source>
+  @type tail
+  read_from_head true
+  path /var/log/*.log
+  pos_file /tmp/log.pos
+  tag "#{Socket.gethostname}.*"
+  refresh_interval 1s
+  <parse>
+    @type none
+  </parse>
+</source>
+
+<match app*.**>
+  @type forward
+  send_timeout 1s
+  recover_wait 10s
+  hard_timeout 60s
+  heartbeat_interval 10s
+  <server>
+    host 142.93.103.204
+    port 24224
+    weight 60
+  </server>
+#  <buffer tag>
+#    flush_interval 1s
+#    flush_mode interval
+#  </buffer>
+</match>
+
+<label @FLUENT_LOG>
+  <match fluent.*>
+    @type stdout
+  </match>
+</label>
+
+srv
+
+<source>
+  @type forward
+  port 24224
+  bind 0.0.0.0
+</source>
+
+<match **>
+  @type copy
+  <store>
+    @type file
+#  add_path_suffix false
+    path /tmp/task05/${tag[0]}/${tag[3]}.log
+    <buffer tag>
+#    flush_interval 1s
+    </buffer>
+  </store>
+  <store>
+    @type s3
+    aws_key_id AKIAZMJMH6DARKBXT46M
+    aws_sec_key Tllkg/peqZ6HQrwOHLe2AvAuPwn0StDA8CjBXsFn
+    s3_bucket c6809cb696d3355ff1152660c0ff33a4
+    s3_region eu-central-1
+    store_as text
+    path ${tag[0]}/${tag[3]}.log
+#    s3_object_key_format ${tag[0]}/${tag[3]}.log
+    <buffer tag>
+      @type file
+      path /tmp/task05/
+      timekey 10 # 1 hour partition
+      timekey_wait 1s
+      timekey_use_utc true # use utc
+      chunk_limit_size 256m
+    </buffer>
+  </store>
+</match>
+
+<label @FLUENT_LOG>
+  <match fluent.*>
+    @type stdout
+  </match>
+</label>

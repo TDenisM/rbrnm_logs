@@ -1,0 +1,19 @@
+<system>
+  log_level trace
+</system>
+
+<source>
+  @type tail
+  path /var/log/*.log
+  pos_file /var/log/td-agent/log.pos
+  tag files.*
+  refresh_interval 1s
+  <parse>
+    @type syslog
+  </parse>
+</source>
+
+<match files.**>
+  type loggly
+  loggly_url https://logs-01.loggly.com/inputs/{{ token }}/tag/fluentd
+</match>

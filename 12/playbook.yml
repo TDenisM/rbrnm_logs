@@ -1,0 +1,316 @@
+---
+- name: check for ssh
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: check ssh state
+      wait_for:
+        port: 22
+        host: '{{ ansible_host }}'
+        search_regex: OpenSSH
+        delay: 5
+      connection: local
+
+- name: system preparations
+  hosts: all
+  become: yes
+  tasks:
+    - name: apt update
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+    - name: edit hostfiles
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ hostvars[item]['ansible_facts']['eth1']['ipv4']['address'] }} {{ hostvars[item]['ansible_hostname'] + '.internal' }}"
+      with_items: "{{ groups['all'] }}"
+
+- name: install java
+  hosts: all
+  become: yes
+  pre_tasks:
+    - name: Update apt
+      become: yes
+      apt:
+        cache_valid_time: 3600
+        update_cache: yes
+  roles:
+    - gantsign.java
+  tasks:
+    - name: find java
+      command: find /opt/java -type f -name java
+      register: this
+    - name: link java bin
+      file:
+        src: '{{ this.stdout }}'
+        dest: /usr/bin/java
+        state: link
+
+- name: install es
+  hosts: all
+  become: yes
+  roles:
+    - elastic.elasticsearch
+  vars:
+    es_heap_size: 1g
+    es_config:
+      node.name: '{{ ansible_hostname | quote }}'
+      http.host: '{{ "localhost," + ansible_facts["eth1"]["ipv4"]["address"] }}'
+      http.port: 9200  
+
+- name: install graylog
+  hosts: all
+  become: true
+  vars:
+    graylog_version: 4.1
+    graylog_install_java: False # Elasticsearch role already installed Java
+    graylog_install_elasticsearch: False
+    graylog_password_secret: "2jueVqZpwLLjaWxV" # generate with: pwgen -s 96 1
+    graylog_root_password_sha2: "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"
+    graylog_http_bind_address: "{{ ansible_default_ipv4.address }}:9000"
+    graylog_http_publish_uri: "http://{{ ansible_default_ipv4.address }}:9000/"
+    graylog_http_external_uri: "http://{{ ansible_default_ipv4.address }}:9000/"
+  roles:
+    - graylog2.graylog-ansible-role
+
+- name: configure graylog
+  hosts: all
+  become: yes
+  vars:
+    usr_admin_password: 'usr_admin_password'
+    sys_admin_master_password: 'sys_admin_master_password'
+    sys_admin_junior_password: 'sys_admin_junior_password'
+    web_admin_password: 'web_admin_password'
+    sre_junior_password: 'sre_junior_password'
+  tasks:
+    - name: get inputs number
+      uri:
+        url: http://{{ ansible_default_ipv4.address }}:9000/api/system/inputs
+        method: GET
+        user: admin
+        password: admin
+        force_basic_auth: yes
+        return_content: yes
+      register: inputs
+    - name: create input
+      uri:
+        url: http://{{ ansible_default_ipv4.address }}:9000/api/system/inputs
+        method: POST
+        user: admin
+        password: admin
+        force_basic_auth: yes
+        status_code: 201
+        body_format: json
+        body: "{{ lookup('file','files/create_input.json') }}"
+        headers:
+          Content-Type: application/json
+          X-Requested-By: cli
+      when: (inputs.content|from_json).total == 0
+    - name: get indexset
+      uri:
+        url: http://{{ ansible_default_ipv4.address }}:9000/api/system/indices/index_sets
+        method: GET
+        user: admin
+        password: admin
+        force_basic_auth: yes
+        return_content: yes
+      register: index_sets
+    - name: create USR_full_access role
+      uri:
+        url: http://{{ ansible_default_ipv4.address }}:9000/api/roles
+        method: POST
+        user: admin
+        password: admin
+        force_basic_auth: yes
+        status_code: 201
+        body_format: json
+        body: "{{ lookup('file','files/create_role_USR_full_access.json') }}"
+        headers:
+          Content-Type: application/json
+          X-Requested-By: cli
+    - name: create user usr_admin
+      uri:
+        url: http://{{ ansible_default_ipv4.address }}:9000/api/users
+        method: POST
+        user: admin
+        password: admin
+        force_basic_auth: yes
+        status_code: 201
+        body_format: json
+        body: "{{ lookup('template','files/create_user_usr_admin.json.j2') }}"
+        headers:
+          Content-Type: application/json
+          X-Requested-By: cli
+    - name: create syslogs_stream
+      uri:
+        url: http://{{ ansible_default_ipv4.address }}:9000/api/streams
+        method: POST
+        user: usr_admin
+        password: '{{ usr_admin_password }}'
+        force_basic_auth: yes
+        status_code: 201
+        body_format: json
+        body: "{{ lookup('template','files/create_system_stream.json.j2') }}"
+        headers:
+          Content-Type: application/json
+          X-Requested-By: cli
+        return_content: yes
+      register: syslogs_stream
+    - name: resume stream
+      uri:
+        url: http://{{ ansible_default_ipv4.address }}:9000/api/streams/{{ (syslogs_stream.content|from_json).stream_id }}/resume
+        method: POST
+        user: usr_admin
+        password: '{{ usr_admin_password }}'
+        force_basic_auth: yes
+        status_code: 204
+        headers:
+          Content-Type: application/json
+          X-Requested-By: cli
+    - name: create weblogs_stream
+      uri:
+        url: http://{{ ansible_default_ipv4.address }}:9000/api/streams
+        method: POST
+        user: usr_admin
+        password: '{{ usr_admin_password }}'
+        force_basic_auth: yes
+        status_code: 201
+        body_format: json
+        body: "{{ lookup('template','files/create_nginx_stream.json.j2') }}"
+        headers:
+          Content-Type: application/json
+          X-Requested-By: cli
+        return_content: yes
+      register: weblogs_stream
+    - name: resume stream
+      uri:
+        url: http://{{ ansible_default_ipv4.address }}:9000/api/streams/{{ (weblogs_stream.content|from_json).stream_id }}/resume
+        method: POST
+        user: usr_admin
+        password: '{{ usr_admin_password }}'
+        force_basic_auth: yes
+        status_code: 204
+        headers:
+          Content-Type: application/json
+          X-Requested-By: cli
+    - name: create role syslogs_full_access
+      uri:
+        url: http://{{ ansible_default_ipv4.address }}:9000/api/roles
+        method: POST
+        user: usr_admin
+        password: '{{ usr_admin_password }}'
+        force_basic_auth: yes
+        status_code: 201
+        body_format: json
+        body: "{{ lookup('template','files/create_role_syslogs_full_access.json.j2') }}"
+        headers:
+          Content-Type: application/json
+          X-Requested-By: cli
+    - name: create user sys_admin_master
+      uri:
+        url: http://{{ ansible_default_ipv4.address }}:9000/api/users
+        method: POST
+        user: usr_admin
+        password: '{{ usr_admin_password }}'
+        force_basic_auth: yes
+        status_code: 201
+        body_format: json
+        body: "{{ lookup('template','files/create_user_sys_admin_master.json.j2') }}"
+        headers:
+          Content-Type: application/json
+          X-Requested-By: cli
+    - name: create role syslogs_read_access
+      uri:
+        url: http://{{ ansible_default_ipv4.address }}:9000/api/roles
+        method: POST
+        user: usr_admin
+        password: '{{ usr_admin_password }}'
+        force_basic_auth: yes
+        status_code: 201
+        body_format: json
+        body: "{{ lookup('template','files/create_role_syslogs_read_access.json.j2') }}"
+        headers:
+          Content-Type: application/json
+          X-Requested-By: cli
+    - name: create user sys_admin_junior
+      uri:
+        url: http://{{ ansible_default_ipv4.address }}:9000/api/users
+        method: POST
+        user: usr_admin
+        password: '{{ usr_admin_password }}'
+        force_basic_auth: yes
+        status_code: 201
+        body_format: json
+        body: "{{ lookup('template','files/create_user_sys_admin_junior.json.j2') }}"
+        headers:
+          Content-Type: application/json
+          X-Requested-By: cli
+    - name: create role weblogs_full_access
+      uri:
+        url: http://{{ ansible_default_ipv4.address }}:9000/api/roles
+        method: POST
+        user: usr_admin
+        password: '{{ usr_admin_password }}'
+        force_basic_auth: yes
+        status_code: 201
+        body_format: json
+        body: "{{ lookup('template','files/create_role_weblogs_full_access.json.j2') }}"
+        headers:
+          Content-Type: application/json
+          X-Requested-By: cli
+    - name: create user web_admin
+      uri:
+        url: http://{{ ansible_default_ipv4.address }}:9000/api/users
+        method: POST
+        user: usr_admin
+        password: '{{ usr_admin_password }}'
+        force_basic_auth: yes
+        status_code: 201
+        body_format: json
+        body: "{{ lookup('template','files/create_user_web_admin.json.j2') }}"
+        headers:
+          Content-Type: application/json
+          X-Requested-By: cli
+    - name: create role sre_read_access
+      uri:
+        url: http://{{ ansible_default_ipv4.address }}:9000/api/roles
+        method: POST
+        user: usr_admin
+        password: '{{ usr_admin_password }}'
+        force_basic_auth: yes
+        status_code: 201
+        body_format: json
+        body: "{{ lookup('template','files/create_role_sre_read_access.json.j2') }}"
+        headers:
+          Content-Type: application/json
+          X-Requested-By: cli
+    - name: create user sre_junior
+      uri:
+        url: http://{{ ansible_default_ipv4.address }}:9000/api/users
+        method: POST
+        user: usr_admin
+        password: '{{ usr_admin_password }}'
+        force_basic_auth: yes
+        status_code: 201
+        body_format: json
+        body: "{{ lookup('template','files/create_user_sre_junior.json.j2') }}"
+        headers:
+          Content-Type: application/json
+          X-Requested-By: cli
+
+- name: save rusults
+  hosts: all
+  become: yes
+  tasks:
+    - name: create dest dir
+      file:
+        path: /tmp/graylog_users_rights
+        state: directory
+    - name: get inputs number
+      command: curl -u admin:admin -X GET http://{{ ansible_default_ipv4.address }}:9000/api/users
+      register: users
+    - name: create permissions files
+      copy:
+        dest: /tmp/graylog_users_rights/{{ item.username }}_rights
+        content: '{{ item }}'
+      with_items: '{{ (users.stdout|from_json).users }}'

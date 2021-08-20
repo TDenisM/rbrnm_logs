@@ -1,0 +1,36 @@
+<system>
+  log_level trace
+</system>
+
+<source>
+  @type kafka
+  brokers logs.internal:9092
+  format json
+#  add_prefix from_kafka
+  <topic>
+    topic logs
+  </topic>
+  @label @INPUT
+</source>
+
+<label @INPUT>
+  <match logs>
+    @type elasticsearch
+    hosts {{ groups['es_all'] | product(['internal']) | map('join', '.') | product(['9200']) | map('join', ':') | join(',') }}
+    flush_interval 1s
+    index_name logs
+    include_tag_key true
+    tag_key tag
+    include_timestamp true
+    reconnect_on_error true
+    compression_level default_compression
+#    logstash_format true
+    <buffer>
+      flush_interval 5s
+    </buffer>
+#    <inject>
+#      time_key          @log_time
+#      time_format       %Y%m%dT%H%M%S%z
+#    </inject>
+  </match>
+</label>

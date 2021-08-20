@@ -1,0 +1,35 @@
+---
+
+- name: FLUENTD | Create server conf path
+  file:
+    path: "{{ fluentd_conf_path }}"
+    state: directory
+    owner: "{{ fluentd_user }}"
+    group: "{{ fluentd_group }}"
+    mode: 0755
+
+- name: FLUENTD | Create log path
+  file:
+    path: "{{ fluentd_log_path }}"
+    state: directory
+    owner: "{{ fluentd_user }}"
+    group: "{{ fluentd_group }}"
+    mode: 0755
+
+- name: FLUENTD | Copy server config
+  template:
+    src: "{{ fluentd_playbook_templates_path }}/fluent.conf.j2"
+    dest: "{{ fluentd_conf_path }}/fluent.conf"
+    owner: "{{ fluentd_user }}"
+    group: "{{ fluentd_group }}"
+    mode: 0644
+  notify: restart fluentd
+
+- name: FLUENTD | Copy fluentd service config
+  template:
+    src: "{{ fluentd_service_template_path }}"
+    dest: /lib/systemd/system/fluentd.service
+    owner: "{{ fluentd_user }}"
+    group: "{{ fluentd_group }}"
+    mode: 0755
+  notify: restart fluentd

@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  author: Idealista S.A.U.
+  company: Idealista S.A.U.
+  description: Kafka distributed streaming platform
+  min_ansible_version: 2.7.5.0
+  license: Apache 2.0
+  platforms:
+    - name: Debian
+      versions:
+        - stretch
+  galaxy_tags:
+    - clustering
+    - queue

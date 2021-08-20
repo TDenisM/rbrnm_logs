@@ -1,0 +1,27 @@
+{
+  "read_only": true,
+  "permissions": [
+    "streams:read:{{ (syslogs_stream.content|from_json).stream_id }}",
+    "streams:edit:{{ (syslogs_stream.content|from_json).stream_id }}",
+#    "messagecount:read",
+    "sidecar_collectors:read",
+    "fieldnames:read",
+    "system:read",
+    "sidecar_collector_configurations:read",
+    "sidecars:read",
+    "clusterconfigentry:read",
+    "decorators:read",
+    "stream_outputs:read",
+#    "messages:*",
+    "buffers:read",
+    "sources:read",
+#    "journal:read",
+    "indexercluster:read",
+    "system:read",
+    "jvmstats:read",
+    "inputs:read",
+#    "throughput:read"
+  ],
+  "name": "syslogs_full_access",
+  "description": "syslogs full access"
+}

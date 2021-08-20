@@ -1,0 +1,15 @@
+most recent
+
+curl localhost:9200/applogs/_search?pretty=true -XPOST -H 'Content-Type: application/json' -d '{
+  "query": {
+    "match_all": {}
+  },
+  "size": 1,
+  "sort": [
+    {
+      "@timestamp": {
+        "order": "desc"
+      }
+    }
+  ]
+}'

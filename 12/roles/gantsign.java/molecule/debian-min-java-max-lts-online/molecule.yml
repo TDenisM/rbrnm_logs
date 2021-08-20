@@ -1,0 +1,26 @@
+---
+dependency:
+  name: galaxy
+
+driver:
+  name: docker
+
+lint: |
+  set -e
+  yamllint .
+  ansible-lint
+  flake8
+
+platforms:
+  - name: ansible-role-java-debian-min-java-max-lts
+    image: debian:8
+    dockerfile: ../default/Dockerfile.j2
+
+provisioner:
+  name: ansible
+  playbooks:
+    converge: ../java-max-lts-online/converge.yml
+
+verifier:
+  name: testinfra
+  directory: ../java-max-lts/tests

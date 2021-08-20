@@ -1,0 +1,13 @@
+[es_all]
+es01 ansible_host=165.227.170.14 ansible_user=user ansible_ssh_pass=nuyeblxveeuh = 
+es02 ansible_host=165.227.138.183 ansible_user=user ansible_ssh_pass=avdppmwvtakw = 
+es03 ansible_host=206.81.16.229 ansible_user=user ansible_ssh_pass=utvhpffdqhnj = 
+
+[logs_all]
+logs ansible_host=206.81.24.46 ansible_user=user ansible_ssh_pass=hlcytstrzuog = 
+
+[app_all]
+app1 ansible_host=46.101.248.154 ansible_user=user ansible_ssh_pass=srhxrakjvrnk = 
+app2 ansible_host=159.89.2.174 ansible_user=user ansible_ssh_pass=oivqnkbcvioa = 
+app3 ansible_host=165.22.65.75 ansible_user=user ansible_ssh_pass=ltaqiicqqfao = 
+

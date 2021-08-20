@@ -1,0 +1,197 @@
+---
+- name: check for ssh
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: check ssh state
+      wait_for:
+        port: 22
+        host: '{{ ansible_host }}'
+        search_regex: OpenSSH
+        delay: 5
+      connection: local
+
+- name: system preparations
+  hosts: all
+  become: yes
+  tasks:
+    - name: apt update
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+    - name: edit hostfiles
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ hostvars[item]['ansible_facts']['eth1']['ipv4']['address'] }} {{ hostvars[item]['ansible_hostname'] + '.internal' }}"
+      with_inventory_hostnames:
+        - all
+    
+- name: install ES
+  hosts: es_all
+  become: yes
+  roles:
+    - elastic.elasticsearch
+  vars:
+    es_heap_size: 1g
+    es_config:
+      cluster.name: "final-cluster"
+      node.name: '{{ ansible_hostname | quote }}'
+      http.host: '{{ "localhost," + ansible_facts["eth1"]["ipv4"]["address"] }}'
+      http.port: 9200
+      node.data: true
+      node.master: true
+      bootstrap.memory_lock: true
+      transport.host: '{{ ansible_facts["eth1"]["ipv4"]["address"] }}'
+      transport.port: 9300
+      discovery.seed_hosts: "{{ groups['es_all'] | product(['internal']) | map('join', '.') | product(['9300']) | map('join', ':') | join(',') | quote }}"
+      cluster.initial_master_nodes: "{{ groups['es_all'] | join(',') }}"
+      discovery.zen.minimum_master_nodes: 2
+
+- name: make some ES tunes
+  hosts: es_all
+  tasks:
+    - name: set max descriptors
+      become: yes
+      lineinfile:
+        path: /etc/security/limits.conf
+        regexp: 'nofile .+'
+        line: nofile 65536
+
+- name: ES create indexes and make tests
+  hosts: es01
+  become: yes
+  vars:
+    - index_name: logs
+  tasks:
+    - name: get/set cluster info/settings
+      uri:
+        url: 'http://es02.internal:9200/_cluster/health?pretty'
+        return_content: yes
+      register: this
+    - debug: var={{ item }}
+      with_dict: '{{ this.content }}'
+    - name: get cluster status info
+      uri:
+        url: 'http://es02.internal:9200/_cluster/state?pretty'
+        return_content: yes
+      register: this
+    - debug: var={{ item }}
+      with_dict: '{{ this.content }}'
+    - name: get master info
+      uri:
+        url: 'http://es02.internal:9200/_cat/master?pretty'
+        return_content: yes
+      register: this
+    - name: check index existance
+      uri:
+        url: http://es01.internal:9200/_cat/indices/{{ index_name }}
+        status_code:
+          - 200
+          - 404
+      register: index_state
+    - debug:
+        msg: '{{ index_state }}'
+    - name: create syslogs index
+      uri:
+        url: 'http://es01.internal:9200/{{ index_name }}'
+        method: PUT
+        src: files/idx.json
+        headers:
+          Content-Type: application/json
+        body_format: json
+      when: index_state.status == 404
+    - name: cat indexes
+      uri:
+        url: 'http://es01.internal:9200/_cat/indices'
+        return_content: yes
+      register: this
+    - name: Indexes list
+      debug:
+        var='{{ item }}'
+      with_dict: '{{ this }}'
+    - name: cat replicas
+      uri:
+        url: 'http://es01.internal:9200/_cat/shards/{{ item }}'
+      with_items:
+        - logs
+      register: this
+    - debug: var={{ item }}
+      with_dict: '{{ this }}'
+
+- name: install java
+  hosts: logs
+  become: yes
+  roles:
+    - gantsign.java
+  tasks:
+    - name: find java
+      command: find /opt/java -type f -name java
+      register: this
+    - name: link java bin
+      file:
+        src: '{{ this.stdout }}'
+        dest: /usr/bin/java
+        state: link
+
+- name: install and configure required software
+  hosts: logs
+  become: yes
+  roles:
+    - idealista.zookeeper_role
+    - idealista.kafka_role
+    - geerlingguy.kibana
+  tasks:
+    - name: download install fluentd
+      get_url:
+        url: https://toolbelt.treasuredata.com/sh/install-ubuntu-focal-td-agent4.sh
+        dest: .
+        mode: '0555'
+    - name: run install script
+      command: sh ./install-ubuntu-focal-td-agent4.sh
+    - name: copy fluentd config
+      template:
+        src: files/td-agent.log.conf.j2
+        dest: /etc/td-agent/td-agent.conf
+    - name: restart fluentd
+      service:
+        name: td-agent
+        state: restarted
+
+- name: install and configure required software
+  hosts: app_all
+  become: yes
+  tasks:
+#    - name: update system software
+#      apt:
+#        name: '*'
+#        state: latest
+    - name: set docker logs permissions
+      file:
+        path: /var/lib/docker/containers
+        recurse: yes
+        mode: 'a+rx'
+    - name: download install fluentd
+      get_url:
+        url: https://toolbelt.treasuredata.com/sh/install-ubuntu-bionic-td-agent4.sh
+        dest: .
+        mode: '0555'
+    - name: run install script
+      command: sh ./install-ubuntu-bionic-td-agent4.sh
+    - name: copy fluentd config
+      copy:
+        src: files/td-agent.app.conf
+        dest: /etc/td-agent/td-agent.conf
+    - name: add td-agent user to root group
+      user:
+        name: td-agent
+        groups:
+          - root
+          - adm
+        append: yes
+    - name: restart fluentd
+      service:
+        name: td-agent
+        state: restarted
+
+
+

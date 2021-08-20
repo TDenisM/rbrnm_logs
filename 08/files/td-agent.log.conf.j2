@@ -1,0 +1,44 @@
+<system>
+  log_level trace
+</system>
+
+<source>
+  @type forward
+  port 24224
+  bind {{ hostvars['fluentd']['ansible_facts']['eth1']['ipv4']['address'] }}
+  tag applogs.local
+</source>
+
+<source>
+  @type syslog
+  port 5140
+  bind {{ hostvars['fluentd']['ansible_facts']['eth1']['ipv4']['address'] }}
+  tag syslogs.local
+  protocol_type tcp
+</source>
+
+<match {applogs,syslogs}.**>
+  @type elasticsearch
+  hosts es01.internal,es02.internal,es03.internal
+  port 9200
+#  logstash_format true
+#  logstash_prefix task07.${tag[3]}
+#  logstash_dateformat %Y-%m-%d
+#  tag_key @log_name
+  include_timestamp true
+#  time_key @timestamp
+#  keep_time_key true
+#  time_key_format %Y-%m-%dT%H:%M:%S
+  index_name ${tag[0]}
+  flush_interval 1s
+  <buffer tag>
+    @type file
+    path /var/log/td-agent/buffer
+  </buffer>
+#  <inject>
+#    time_key fluentd_time
+#    time_type string
+#    time_format %Y-%m-%dT%H:%M:%S
+#    tag_key fluentd_tag
+#  </inject>
+</match>

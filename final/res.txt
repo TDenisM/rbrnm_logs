@@ -1,0 +1,6 @@
+es01: connect command: ssh user@157.230.21.158 password: qzxavyjxgwtf
+es02: connect command: ssh user@68.183.222.198 password: wxkwbjpkkiuh
+es03: connect command: ssh user@167.99.133.246 password: akiikfponfbc
+fluentd: connect command: ssh user@178.128.195.81 password: pepyhvalqstw
+app1: connect command: ssh user@159.89.102.231 password: rcrbahwlqrve
+app2: connect command: ssh user@104.248.131.241 password: ruxmoowiyvim

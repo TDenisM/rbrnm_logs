@@ -1,0 +1,200 @@
+---
+- name: check for ssh
+  hosts: es
+  gather_facts: no
+  tasks:
+    - name: check ssh state
+      wait_for:
+        port: 22
+        host: '{{ ansible_host }}'
+        search_regex: OpenSSH
+        delay: 5
+      connection: local
+
+- name: system preparations
+  hosts: es, log, app
+  become: yes
+  tasks:
+    - name: apt update
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+    - name: edit hostfiles
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ hostvars[item]['ansible_facts']['eth1']['ipv4']['address'] }} {{ hostvars[item]['ansible_hostname'] + '.internal' }}"
+      with_items: "{{ groups['es'] + groups['log'] + groups['app'] }}"
+    
+- name: install ES
+  hosts: es
+  become: yes
+  roles:
+    - elastic.elasticsearch
+  vars:
+    es_heap_size: 1g
+    es_config:
+      cluster.name: "test-cluster"
+      node.name: '{{ ansible_hostname | quote }}'
+      http.host: '{{ "localhost," + ansible_facts["eth1"]["ipv4"]["address"] }}'
+      http.port: 9200
+      node.data: true
+      node.master: true
+      bootstrap.memory_lock: true
+      transport.host: '{{ ansible_facts["eth1"]["ipv4"]["address"] }}'
+      transport.port: 9300
+      discovery.seed_hosts: "{{ groups['es'] | product(['internal']) | map('join', '.') | product(['9300']) | map('join', ':') | join(',') | quote }}"
+      cluster.initial_master_nodes: "{{ groups['es'] | join(',') }}"
+      discovery.zen.minimum_master_nodes: 2
+
+- name: make some tests
+  hosts: es01
+  tasks:
+    - name: set max descriptors
+      become: yes
+      lineinfile:
+        path: /etc/security/limits.conf
+        regexp: 'nofile .+'
+        line: nofile 65536
+    - name: get/set cluster info/settings
+      uri:
+        url: 'http://es02.internal:9200/_cluster/health?pretty'
+        return_content: yes
+      register: this
+    - debug: var={{ item }}
+      with_dict: '{{ this.content }}'
+    - name: get cluster status info
+      uri:
+        url: 'http://es02.internal:9200/_cluster/state?pretty'
+        return_content: yes
+      register: this
+    - debug: var={{ item }}
+      with_dict: '{{ this.content }}'
+    - name: get master info
+      uri:
+        url: 'http://es02.internal:9200/_cat/master?pretty'
+        return_content: yes
+      register: this
+    - name: cretae empty file
+      become: yes
+      file:
+        path: /tmp/the_master_node_was_here
+        state: touch
+    - name: save master info
+      become: yes
+      lineinfile:
+        path: /tmp/the_master_node_was_here
+        line: '{{ this.content }}'
+#        state: present
+    - name: check syslogs index existance
+      uri:
+        url: 'http://es01.internal:9200/syslogs'
+      register: this
+      ignore_errors: yes
+    - name: create syslogs index
+      uri:
+        url: 'http://es01.internal:9200/syslogs'
+        method: PUT
+        src: files/idx.json
+        headers:
+          Content-Type: application/json
+        body_format: json
+      when: this.status != 200
+    - name: check applogs index existance
+      uri:
+        url: 'http://es01.internal:9200/applogs'
+      register: this
+      ignore_errors: yes
+    - name: create indexes
+      uri:
+        url: 'http://es01.internal:9200/applogs'
+        method: PUT
+        src: files/idx.json
+        headers:
+          Content-Type: application/json
+        body_format: json
+      when: this.status != 200
+    - name: cat indexes
+      uri:
+        url: 'http://es01.internal:9200/_cat/indices'
+        return_content: yes
+      register: this
+    - debug: var={{ item }}
+      with_dict: '{{ this }}'
+    - name: cat replicas
+      uri:
+        url: 'http://es01.internal:9200/_cat/shards/{{ item }}'
+      with_items:
+        - syslogs
+        - applogs
+      register: this
+    - debug: var={{ item }}
+      with_dict: '{{ this }}'
+
+- name: fluentd
+  hosts: log, app
+  become: yes
+  tasks:
+    - name: download install script
+      get_url:
+        url: https://toolbelt.treasuredata.com/sh/install-ubuntu-focal-td-agent4.sh
+        dest: .
+        mode: '0555'
+    - name: run install script
+      command: sh ./install-ubuntu-focal-td-agent4.sh
+
+- name: tune log
+  hosts: log
+  become: yes
+  tasks:
+    - name: install ES plugin
+      command: /opt/td-agent/bin/fluent-gem install fluent-plugin-elasticsearch
+    - name: copy fluentd config
+      template:
+        src: files/td-agent.log.conf.j2
+        dest: /etc/td-agent/td-agent.conf
+        mode: '0644'
+    - name: restart fluentd
+      service:
+        name: td-agent
+        state: restarted
+    - name: configure rsyslog
+      lineinfile:
+        path: /etc/rsyslog.conf
+        line: '*.* @@fluentd.internal:5140'
+    - name: restart rsyslog
+      service:
+        name: rsyslog
+        state: restarted
+
+- name: tune app
+  hosts: app
+  become: yes
+  tasks:
+    - name: copy fluentd config
+      template:
+        src: files/td-agent.app.conf.j2
+        dest: /etc/td-agent/td-agent.conf
+        mode: '0644'
+    - name: restart fluentd
+      service:
+        name: td-agent
+        state: restarted
+    - name: configure syslog
+      lineinfile:
+        path: /etc/rsyslog.conf
+        line: '*.* @@localhost:5140'
+    - name: restart rsyslog
+      service:
+        name: rsyslog
+        state: restarted
+    - name: copy cron script
+      copy:
+        src: files/log_generator
+        dest: /tmp/log_generator
+        mode: '0777'
+    - name: set cron
+      cron:
+        name: log generator
+        job: /tmp/log_generator
+        minute: '*'
+    

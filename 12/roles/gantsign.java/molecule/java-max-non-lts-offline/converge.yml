@@ -1,0 +1,48 @@
+---
+- name: Converge
+  hosts: all
+
+  pre_tasks:
+    - name: update apt cache
+      apt:
+        update_cache: yes
+      changed_when: no
+      when: ansible_pkg_mgr == 'apt'
+
+    - name: create local archive directory
+      file:
+        state: directory
+        mode: 'u=rwx,go=rx'
+        dest: '{{ java_local_archive_dir }}'
+      delegate_to: localhost
+
+    - name: download JDK for offline install
+      get_url:
+        url: "https://api.adoptopenjdk.net/v3/binary/version/{{ 'jdk-16+36' | urlencode }}/linux/x64/jdk/hotspot/normal/adoptopenjdk?project=jdk"  # noqa 204
+        dest: '{{ java_local_archive_dir }}/OpenJDK16U-jdk_x64_linux_hotspot_16_36.tar.gz'
+        force: no
+        timeout: '{{ java_download_timeout_seconds }}'
+        mode: 'u=rw,go=r'
+      delegate_to: localhost
+
+  roles:
+    - role: ansible-role-java
+      java_use_local_archive: yes
+      java_major_version: '16'
+      java_version: '16.0.0+36'
+      java_release_name: 'jdk-16+36'
+      java_redis_filename: 'OpenJDK16U-jdk_x64_linux_hotspot_16_36.tar.gz'
+      java_redis_sha256sum: '2e031cf37018161c9e59b45fa4b98ff2ce4ce9297b824c512989d579a70f8422'
+
+  post_tasks:
+    - name: verify java facts
+      assert:
+        that:
+          - ansible_local.java.general.version is defined
+          - ansible_local.java.general.home is defined
+
+    - name: install find - required for tests (dnf)
+      dnf:
+        name: findutils
+        state: present
+      when: ansible_pkg_mgr == 'dnf'

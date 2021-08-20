@@ -1,0 +1,4 @@
+grep -r /var/log/auth.log -e '64.233.163.138' | wc -l
+cat /var/log/nginx/access.log | grep 64.233.163.138 | awk '{print $7}' | sort -u
+grep -r /var/log/syslog -e 'nginx' | wc -l
+

@@ -1,0 +1,18 @@
+---
+# Java AdoptOpenJDK release
+java_release: "{{ java_version | string | regex_search('^((?:[0-9]+\\.)*)([0-9]+)$') | ternary('[' + (java_version | string) + ',' + (java_version | string | regex_replace('^((?:[0-9]+\\.)*)([0-9]+)$', '\\1')) + (((java_version | string | regex_replace('^((?:[0-9]+\\.)*)([0-9]+)$', '\\2') | int) + 1) | string) + ')', java_version) }}"
+
+# The root folder of this Java installation
+java_home: '{{ java_install_dir }}/{{ java_release_name }}'
+
+# The URL for the AdoptOpenJDK API request
+java_api_request: 'https://api.adoptopenjdk.net/v3/assets/version/{{ java_release | urlencode }}?jvm_impl={{ java_implementation }}&os={{ java_os }}&architecture={{ java_arch }}&heap_size={{ java_heap_size }}&image_type=jdk&project=jdk&release_type=ga&sort_order=DESC&vendor=adoptopenjdk'
+
+# Operating System
+java_os: linux
+
+# Architecture
+java_arch: x64
+
+# Heap size
+java_heap_size: normal
